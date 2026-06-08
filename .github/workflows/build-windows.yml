@@ -1,0 +1,30 @@
+name: Build Windows Package
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Build package
+        shell: pwsh
+        run: powershell -ExecutionPolicy Bypass -File scripts\build_release.ps1
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pingshi-qishen-windows
+          path: dist/屏时起身-普通用户版.zip
