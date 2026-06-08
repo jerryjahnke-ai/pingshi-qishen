@@ -16,7 +16,7 @@ PingShiQiShen is a lightweight Windows utility that tracks foreground app usage 
 
 ## 下载使用
 
-普通用户可以在 GitHub Releases 下载 `屏时起身-普通用户版.zip`。
+普通用户可以在 GitHub Releases 下载 Windows zip 附件（显示为 `屏时起身-普通用户版.zip`）。
 
 1. 解压 zip。
 2. 双击 `屏时起身.exe` 直接运行。
