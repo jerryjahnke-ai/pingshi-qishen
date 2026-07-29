@@ -1,5 +1,23 @@
 # Changelog
 
+## v1.1.0 - 2026-07-29
+
+界面视觉升级版本。
+
+- 主界面改为深色调和金色点缀。
+- 增加圆角卡片式布局。
+- 统计表格、按钮、状态区域统一深色科技感风格。
+- 久坐提醒文案改为“别总是坐着！活动活动。”。
+- 站立提醒文案改为“注意站姿，别挺肚子。”。
+
+Dark/gold UI refresh.
+
+- Updated the main window to a dark theme with gold accents.
+- Added rounded card-style panels.
+- Restyled tables, buttons, and status areas.
+- Updated seated reminder copy.
+- Updated standing reminder copy.
+
 ## v1.0.0 - 2026-06-08
 
 首个开源版本。

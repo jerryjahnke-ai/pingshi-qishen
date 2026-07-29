@@ -31,6 +31,24 @@ MAX_SESSIONS_TO_KEEP = 60
 REMINDER_INTERVAL_SECONDS = 30 * 60
 ACTIVE_IDLE_LIMIT_SECONDS = 60.0
 
+THEME = {
+    "bg": "#07090f",
+    "bg_soft": "#0c1018",
+    "panel": "#111722",
+    "panel_alt": "#151d2b",
+    "panel_high": "#1b2535",
+    "border": "#3a321f",
+    "border_soft": "#263143",
+    "gold": "#d8aa45",
+    "gold_light": "#f1d386",
+    "gold_dark": "#8f6b24",
+    "text": "#f6f1e6",
+    "muted": "#a6adba",
+    "muted_dark": "#747c8d",
+    "danger": "#f0b35f",
+    "shadow": "#05070b",
+}
+
 BASE_DIR = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "PingShiQiShen"
 STATE_FILE = BASE_DIR / "sessions.json"
 LOG_FILE = BASE_DIR / "logs" / "app.log"
@@ -59,6 +77,9 @@ QueryFullProcessImageNameW.argtypes = [
     ctypes.POINTER(wintypes.DWORD),
 ]
 QueryFullProcessImageNameW.restype = wintypes.BOOL
+
+kernel32.CreateMutexW.argtypes = [wintypes.LPVOID, wintypes.BOOL, wintypes.LPCWSTR]
+kernel32.CreateMutexW.restype = wintypes.HANDLE
 
 user32.GetForegroundWindow.restype = wintypes.HWND
 user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
@@ -388,7 +409,7 @@ def create_session(state: dict) -> dict:
         "started_at": now_text(),
         "updated_at": now_text(),
         "reported": False,
-        "app_version": "3-posture-reminder",
+        "app_version": "4-dark-gold-ui",
         "apps": {},
     }
     state.setdefault("sessions", []).append(session)
@@ -398,6 +419,154 @@ def create_session(state: dict) -> dict:
 
 def same_app(left: dict, right: dict) -> bool:
     return (left or {}).get("key") == (right or {}).get("key")
+
+
+def draw_rounded_rect(
+    canvas: tk.Canvas,
+    x1: int,
+    y1: int,
+    x2: int,
+    y2: int,
+    radius: int,
+    *,
+    fill: str,
+    outline: str,
+    width: int = 1,
+    tags: str = "round",
+) -> None:
+    radius = max(1, min(radius, (x2 - x1) // 2, (y2 - y1) // 2))
+    canvas.create_arc(
+        x1,
+        y1,
+        x1 + radius * 2,
+        y1 + radius * 2,
+        start=90,
+        extent=90,
+        fill=fill,
+        outline=outline,
+        width=width,
+        tags=tags,
+    )
+    canvas.create_arc(
+        x2 - radius * 2,
+        y1,
+        x2,
+        y1 + radius * 2,
+        start=0,
+        extent=90,
+        fill=fill,
+        outline=outline,
+        width=width,
+        tags=tags,
+    )
+    canvas.create_arc(
+        x2 - radius * 2,
+        y2 - radius * 2,
+        x2,
+        y2,
+        start=270,
+        extent=90,
+        fill=fill,
+        outline=outline,
+        width=width,
+        tags=tags,
+    )
+    canvas.create_arc(
+        x1,
+        y2 - radius * 2,
+        x1 + radius * 2,
+        y2,
+        start=180,
+        extent=90,
+        fill=fill,
+        outline=outline,
+        width=width,
+        tags=tags,
+    )
+    canvas.create_rectangle(
+        x1 + radius,
+        y1,
+        x2 - radius,
+        y2,
+        fill=fill,
+        outline=outline,
+        width=width,
+        tags=tags,
+    )
+    canvas.create_rectangle(
+        x1,
+        y1 + radius,
+        x2,
+        y2 - radius,
+        fill=fill,
+        outline=outline,
+        width=width,
+        tags=tags,
+    )
+
+
+class RoundedPanel(tk.Frame):
+    def __init__(
+        self,
+        parent: tk.Misc,
+        *,
+        fill: str = THEME["panel"],
+        border: str = THEME["border_soft"],
+        bg: str = THEME["bg"],
+        radius: int = 18,
+        padding: int | tuple[int, int] | tuple[int, int, int, int] = 16,
+        border_width: int = 1,
+        height: int = 1,
+    ) -> None:
+        super().__init__(parent, bg=bg, highlightthickness=0, bd=0)
+        if isinstance(padding, int):
+            pad_left = pad_top = pad_right = pad_bottom = padding
+        elif len(padding) == 2:
+            pad_left = pad_right = padding[0]
+            pad_top = pad_bottom = padding[1]
+        else:
+            pad_left, pad_top, pad_right, pad_bottom = padding
+        self.fill = fill
+        self.border = border
+        self.radius = radius
+        self.pad_left = pad_left
+        self.pad_top = pad_top
+        self.pad_right = pad_right
+        self.pad_bottom = pad_bottom
+        self.border_width = border_width
+        self.canvas = tk.Canvas(self, bg=bg, highlightthickness=0, bd=0, height=height)
+        self.canvas.pack(fill="both", expand=True)
+        self.body = tk.Frame(self.canvas, bg=fill, highlightthickness=0, bd=0)
+        self.body_window = self.canvas.create_window(
+            self.pad_left,
+            self.pad_top,
+            window=self.body,
+            anchor="nw",
+        )
+        self.canvas.bind("<Configure>", self._redraw)
+
+    def _redraw(self, event: tk.Event) -> None:
+        self.canvas.delete("round")
+        width = max(2, event.width)
+        height = max(2, event.height)
+        draw_rounded_rect(
+            self.canvas,
+            1,
+            1,
+            width - 2,
+            height - 2,
+            self.radius,
+            fill=self.fill,
+            outline=self.border,
+            width=self.border_width,
+            tags="round",
+        )
+        self.canvas.tag_lower("round")
+        self.canvas.itemconfigure(
+            self.body_window,
+            width=max(1, width - self.pad_left - self.pad_right),
+            height=max(1, height - self.pad_top - self.pad_bottom),
+        )
 
 
 class UsageTimerWindow:
@@ -447,59 +616,227 @@ class UsageTimerWindow:
             style.theme_use("clam")
         except tk.TclError:
             pass
-        style.configure("Title.TLabel", font=("Microsoft YaHei UI", 16, "bold"))
-        style.configure("Metric.TLabel", font=("Microsoft YaHei UI", 13, "bold"))
-        style.configure("Reminder.TButton", font=("Microsoft YaHei UI", 11), padding=(12, 8))
-        style.configure("Treeview", rowheight=28)
-        style.configure("Treeview.Heading", font=("Microsoft YaHei UI", 9, "bold"))
+        self.root.configure(bg=THEME["bg"])
+        style.configure("App.TFrame", background=THEME["bg"])
+        style.configure("Panel.TFrame", background=THEME["panel"])
+        style.configure("Gold.TButton", font=("Microsoft YaHei UI", 10, "bold"), padding=(14, 8))
+        style.configure("Dark.TButton", font=("Microsoft YaHei UI", 10), padding=(14, 8))
+        style.configure(
+            "Reminder.TButton",
+            font=("Microsoft YaHei UI", 11, "bold"),
+            padding=(14, 9),
+        )
+        for button_style in ("Gold.TButton", "Reminder.TButton"):
+            style.configure(
+                button_style,
+                foreground="#12100a",
+                background=THEME["gold"],
+                bordercolor=THEME["gold_dark"],
+                lightcolor=THEME["gold"],
+                darkcolor=THEME["gold_dark"],
+                focuscolor=THEME["gold"],
+            )
+            style.map(
+                button_style,
+                background=[("active", THEME["gold_light"]), ("pressed", THEME["gold_dark"])],
+                foreground=[("disabled", THEME["muted_dark"])],
+            )
+        style.configure(
+            "Dark.TButton",
+            foreground=THEME["text"],
+            background=THEME["panel_high"],
+            bordercolor=THEME["border_soft"],
+            lightcolor=THEME["panel_high"],
+            darkcolor=THEME["bg_soft"],
+            focuscolor=THEME["gold"],
+        )
+        style.map(
+            "Dark.TButton",
+            background=[("active", "#243049"), ("pressed", "#0f1420")],
+            foreground=[("disabled", THEME["muted_dark"])],
+        )
+        style.configure("App.TNotebook", background=THEME["bg"], borderwidth=0)
+        style.configure(
+            "App.TNotebook.Tab",
+            background=THEME["panel"],
+            foreground=THEME["muted"],
+            padding=(18, 10),
+            font=("Microsoft YaHei UI", 10, "bold"),
+            borderwidth=0,
+        )
+        style.map(
+            "App.TNotebook.Tab",
+            background=[("selected", THEME["gold"]), ("active", THEME["panel_high"])],
+            foreground=[("selected", "#11100b"), ("active", THEME["gold_light"])],
+        )
+        style.configure(
+            "Treeview",
+            rowheight=30,
+            background=THEME["panel"],
+            fieldbackground=THEME["panel"],
+            foreground=THEME["text"],
+            borderwidth=0,
+            font=("Microsoft YaHei UI", 10),
+        )
+        style.map("Treeview", background=[("selected", THEME["gold_dark"])])
+        style.configure(
+            "Treeview.Heading",
+            background=THEME["panel_high"],
+            foreground=THEME["gold_light"],
+            borderwidth=0,
+            relief="flat",
+            font=("Microsoft YaHei UI", 10, "bold"),
+        )
+        style.configure(
+            "Vertical.TScrollbar",
+            background=THEME["panel_high"],
+            troughcolor=THEME["bg_soft"],
+            bordercolor=THEME["bg_soft"],
+            arrowcolor=THEME["gold"],
+        )
 
-        outer = ttk.Frame(self.root, padding=14)
+        outer = tk.Frame(self.root, bg=THEME["bg"], padx=18, pady=16)
         outer.pack(fill="both", expand=True)
 
-        header = ttk.Frame(outer)
-        header.pack(fill="x")
-        ttk.Label(header, text=APP_NAME, style="Title.TLabel").pack(side="left")
-        ttk.Label(header, textvariable=self.status_var).pack(side="right")
+        header_panel = RoundedPanel(
+            outer,
+            fill=THEME["bg_soft"],
+            border=THEME["border"],
+            bg=THEME["bg"],
+            radius=24,
+            padding=(20, 14, 20, 14),
+            height=96,
+        )
+        header_panel.pack(fill="x")
+        header = header_panel.body
+        title_group = tk.Frame(header, bg=THEME["bg_soft"])
+        title_group.pack(side="left", fill="x", expand=True)
+        tk.Label(
+            title_group,
+            text=APP_NAME,
+            bg=THEME["bg_soft"],
+            fg=THEME["text"],
+            font=("Microsoft YaHei UI", 18, "bold"),
+        ).pack(anchor="w")
+        tk.Label(
+            title_group,
+            text="Screen-Time Rise  ·  App Usage Tracking  ·  Stand-Up Reminder",
+            bg=THEME["bg_soft"],
+            fg=THEME["gold_light"],
+            font=("Segoe UI", 9),
+        ).pack(anchor="w", pady=(3, 0))
+        status_badge = tk.Label(
+            header,
+            textvariable=self.status_var,
+            bg=THEME["panel_high"],
+            fg=THEME["gold_light"],
+            padx=14,
+            pady=7,
+            font=("Microsoft YaHei UI", 10, "bold"),
+        )
+        status_badge.pack(side="right")
 
-        current = ttk.LabelFrame(outer, text="正在计时", padding=12)
-        current.pack(fill="x", pady=(12, 8))
-        ttk.Label(current, textvariable=self.current_app_var, style="Metric.TLabel").grid(
-            row=0, column=0, sticky="w"
+        current_panel = RoundedPanel(
+            outer,
+            fill=THEME["panel"],
+            border=THEME["border"],
+            bg=THEME["bg"],
+            radius=22,
+            padding=(20, 16, 20, 16),
+            height=100,
         )
-        ttk.Label(current, textvariable=self.current_time_var, style="Metric.TLabel").grid(
-            row=0, column=1, sticky="e", padx=(20, 0)
-        )
+        current_panel.pack(fill="x", pady=(14, 10))
+        current = current_panel.body
+        tk.Label(
+            current,
+            text="正在计时",
+            bg=THEME["panel"],
+            fg=THEME["gold_light"],
+            font=("Microsoft YaHei UI", 10, "bold"),
+        ).grid(row=0, column=0, sticky="w")
+        tk.Label(
+            current,
+            textvariable=self.current_app_var,
+            bg=THEME["panel"],
+            fg=THEME["text"],
+            font=("Microsoft YaHei UI", 15, "bold"),
+        ).grid(row=1, column=0, sticky="w", pady=(6, 0))
+        tk.Label(
+            current,
+            textvariable=self.current_time_var,
+            bg=THEME["panel"],
+            fg=THEME["gold"],
+            font=("Segoe UI", 22, "bold"),
+        ).grid(row=0, column=1, rowspan=2, sticky="e", padx=(20, 0))
         current.columnconfigure(0, weight=1)
 
-        metrics = ttk.Frame(outer)
+        metrics = tk.Frame(outer, bg=THEME["bg"])
         metrics.pack(fill="x", pady=(0, 10))
         self.add_metric(metrics, "本轮合计", self.total_time_var, 0)
         self.add_metric(metrics, "开始时间", self.started_var, 1)
         self.add_metric(metrics, "最近保存", self.saved_var, 2)
 
-        reminder = ttk.LabelFrame(outer, text="久坐提醒", padding=10)
-        reminder.pack(fill="x", pady=(0, 10))
+        reminder_panel = RoundedPanel(
+            outer,
+            fill=THEME["panel_alt"],
+            border=THEME["border"],
+            bg=THEME["bg"],
+            radius=22,
+            padding=(18, 14, 18, 14),
+            height=174,
+        )
+        reminder_panel.pack(fill="x", pady=(0, 12))
+        reminder = reminder_panel.body
         reminder.columnconfigure(0, weight=1)
         reminder.columnconfigure(1, weight=1)
-        reminder.columnconfigure(2, weight=1)
-        ttk.Label(reminder, textvariable=self.reminder_mode_var, style="Metric.TLabel").grid(
-            row=0, column=0, sticky="w"
+        tk.Label(
+            reminder,
+            text="久坐提醒",
+            bg=THEME["panel_alt"],
+            fg=THEME["gold_light"],
+            font=("Microsoft YaHei UI", 10, "bold"),
+        ).grid(row=0, column=0, sticky="w")
+        tk.Label(
+            reminder,
+            textvariable=self.reminder_mode_var,
+            bg=THEME["panel_alt"],
+            fg=THEME["text"],
+            font=("Microsoft YaHei UI", 14, "bold"),
+        ).grid(row=1, column=0, sticky="w", pady=(5, 0))
+        tk.Label(
+            reminder,
+            textvariable=self.reminder_next_var,
+            bg=THEME["panel_alt"],
+            fg=THEME["muted"],
+            font=("Microsoft YaHei UI", 10),
+        ).grid(row=2, column=0, sticky="w", pady=(4, 0))
+        tk.Label(
+            reminder,
+            textvariable=self.reminder_active_var,
+            bg=THEME["panel_alt"],
+            fg=THEME["gold_light"],
+            font=("Microsoft YaHei UI", 10),
+        ).grid(row=2, column=1, sticky="w", pady=(4, 0))
+        actions = tk.Frame(reminder, bg=THEME["panel_alt"])
+        actions.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(10, 0))
+        ttk.Button(actions, text="正在站立", command=self.mark_standing, style="Gold.TButton").pack(
+            side="left", padx=(0, 8)
         )
-        ttk.Label(reminder, textvariable=self.reminder_next_var).grid(row=1, column=0, sticky="w")
-        ttk.Label(reminder, textvariable=self.reminder_active_var).grid(row=1, column=1, sticky="w")
-        actions = ttk.Frame(reminder)
-        actions.grid(row=0, column=2, rowspan=2, sticky="e")
-        ttk.Button(actions, text="正在站立", command=self.mark_standing).pack(side="left", padx=(0, 6))
-        ttk.Button(actions, text="坐下办公", command=self.mark_sitting).pack(side="left", padx=(0, 6))
-        ttk.Button(actions, textvariable=self.reminder_toggle_text, command=self.toggle_reminder).pack(
-            side="left"
+        ttk.Button(actions, text="坐下办公", command=self.mark_sitting, style="Dark.TButton").pack(
+            side="left", padx=(0, 8)
         )
+        ttk.Button(
+            actions,
+            textvariable=self.reminder_toggle_text,
+            command=self.toggle_reminder,
+            style="Dark.TButton",
+        ).pack(side="left")
 
-        notebook = ttk.Notebook(outer)
+        notebook = ttk.Notebook(outer, style="App.TNotebook")
         notebook.pack(fill="both", expand=True)
 
-        live_tab = ttk.Frame(notebook, padding=(0, 8, 0, 0))
-        history_tab = ttk.Frame(notebook, padding=(0, 8, 0, 0))
+        live_tab = tk.Frame(notebook, bg=THEME["bg"])
+        history_tab = tk.Frame(notebook, bg=THEME["bg"])
         notebook.add(live_tab, text="本轮实时")
         notebook.add(history_tab, text="历史总计")
 
@@ -526,24 +863,60 @@ class UsageTimerWindow:
             },
         )
 
-        footer = ttk.Frame(outer)
+        footer = tk.Frame(outer, bg=THEME["bg"])
         footer.pack(fill="x", pady=(12, 0))
-        ttk.Button(footer, text="刷新", command=self.refresh_ui).pack(side="left")
-        ttk.Button(footer, text="打开记录", command=self.open_data_folder).pack(side="left", padx=8)
-        ttk.Button(footer, text="最小化", command=self.root.iconify).pack(side="right")
-        ttk.Button(footer, text="退出", command=self.confirm_exit).pack(side="right", padx=(0, 8))
+        ttk.Button(footer, text="刷新", command=self.refresh_ui, style="Gold.TButton").pack(side="left")
+        ttk.Button(footer, text="打开记录", command=self.open_data_folder, style="Dark.TButton").pack(
+            side="left", padx=8
+        )
+        ttk.Button(footer, text="最小化", command=self.root.iconify, style="Dark.TButton").pack(
+            side="right"
+        )
+        ttk.Button(footer, text="退出", command=self.confirm_exit, style="Dark.TButton").pack(
+            side="right", padx=(0, 8)
+        )
 
     def add_metric(self, parent: ttk.Frame, label: str, variable: tk.StringVar, column: int) -> None:
-        frame = ttk.LabelFrame(parent, text=label, padding=(10, 8))
-        frame.grid(row=0, column=column, sticky="ew", padx=(0 if column == 0 else 8, 0))
-        ttk.Label(frame, textvariable=variable, style="Metric.TLabel").pack(anchor="w")
+        panel = RoundedPanel(
+            parent,
+            fill=THEME["panel"],
+            border=THEME["border_soft"],
+            bg=THEME["bg"],
+            radius=18,
+            padding=(14, 10, 14, 10),
+            height=82,
+        )
+        panel.grid(row=0, column=column, sticky="ew", padx=(0 if column == 0 else 10, 0))
+        tk.Label(
+            panel.body,
+            text=label,
+            bg=THEME["panel"],
+            fg=THEME["muted"],
+            font=("Microsoft YaHei UI", 9, "bold"),
+        ).pack(anchor="w")
+        tk.Label(
+            panel.body,
+            textvariable=variable,
+            bg=THEME["panel"],
+            fg=THEME["gold_light"],
+            font=("Microsoft YaHei UI", 14, "bold"),
+        ).pack(anchor="w", pady=(4, 0))
         parent.columnconfigure(column, weight=1)
 
     def create_tree(self, parent: ttk.Frame, columns: tuple[str, ...], meta: dict) -> ttk.Treeview:
-        frame = ttk.Frame(parent)
+        panel = RoundedPanel(
+            parent,
+            fill=THEME["panel"],
+            border=THEME["border_soft"],
+            bg=THEME["bg"],
+            radius=20,
+            padding=(12, 12, 12, 12),
+        )
+        panel.pack(fill="both", expand=True, pady=(10, 0))
+        frame = tk.Frame(panel.body, bg=THEME["panel"])
         frame.pack(fill="both", expand=True)
         tree = ttk.Treeview(frame, columns=columns, show="headings", selectmode="browse")
-        scroll = ttk.Scrollbar(frame, orient="vertical", command=tree.yview)
+        scroll = ttk.Scrollbar(frame, orient="vertical", command=tree.yview, style="Vertical.TScrollbar")
         tree.configure(yscrollcommand=scroll.set)
         tree.pack(side="left", fill="both", expand=True)
         scroll.pack(side="right", fill="y")
@@ -704,18 +1077,18 @@ class UsageTimerWindow:
 
         mode = self.reminder.get("mode", "sitting")
         root_was_iconic = self.root.state() == "iconic"
-        title = "该活动一下了" if mode == "sitting" else "站立办公提醒"
+        title = "别总是坐着！活动活动。" if mode == "sitting" else "注意站姿，别挺肚子。"
         kicker = "久坐提醒" if mode == "sitting" else "站立提醒"
         body = (
-            "你已经坐着连续使用屏幕约 30 分钟了。\n站起来活动一下，走几步，伸展肩颈。"
+            "连续使用屏幕约 30 分钟了。\n站起来走几步，伸展一下肩颈。"
             if mode == "sitting"
-            else "你已经站立办公约 30 分钟了。\n收腹，站直，肩膀放松，别把身体重心一直压在同一边。"
+            else "站立办公约 30 分钟了。\n收腹，站直，肩膀放松，别把重心一直压在同一边。"
         )
 
         win = tk.Toplevel(self.root)
         self.reminder_window = win
         win.title(title)
-        win.geometry("470x260")
+        win.geometry("500x270")
         win.resizable(False, False)
         win.attributes("-topmost", True)
         try:
@@ -724,52 +1097,52 @@ class UsageTimerWindow:
             pass
         win.protocol("WM_DELETE_WINDOW", lambda: self.close_posture_reminder("later"))
 
-        bg = "#f7fafc"
-        accent = "#2563eb" if mode == "sitting" else "#0f766e"
-        title_color = "#172033"
-        body_color = "#344256"
+        bg = THEME["bg"]
+        accent = THEME["gold"]
+        title_color = THEME["text"]
+        body_color = "#d9deea"
         win.configure(bg=bg)
 
-        shell = tk.Frame(win, bg=bg, padx=20, pady=18)
+        shell = tk.Frame(win, bg=bg, padx=18, pady=16)
         shell.pack(fill="both", expand=True)
-        content = tk.Frame(
+        card = RoundedPanel(
             shell,
-            bg="#ffffff",
-            highlightbackground="#d7dee8",
-            highlightthickness=1,
-            padx=20,
-            pady=18,
+            fill=THEME["panel"],
+            border=THEME["border"],
+            bg=bg,
+            radius=24,
+            padding=(20, 18, 20, 18),
         )
-        content.pack(fill="both", expand=True)
+        card.pack(fill="both", expand=True)
+        content = card.body
 
         tk.Frame(content, bg=accent, width=5).pack(side="left", fill="y", padx=(0, 16))
-        main = tk.Frame(content, bg="#ffffff")
+        main = tk.Frame(content, bg=THEME["panel"])
         main.pack(side="left", fill="both", expand=True)
         tk.Label(
             main,
             text=kicker,
-            bg="#ffffff",
+            bg=THEME["panel"],
             fg=accent,
-            font=("Microsoft YaHei UI", 11, "bold"),
+            font=("Microsoft YaHei UI", 12, "bold"),
         ).pack(anchor="w")
         tk.Label(
             main,
             text=title,
-            bg="#ffffff",
+            bg=THEME["panel"],
             fg=title_color,
-            font=("Microsoft YaHei UI", 20, "bold"),
-        ).pack(anchor="w", pady=(4, 8))
+            font=("Microsoft YaHei UI", 21, "bold"),
+        ).pack(anchor="w", pady=(5, 10))
         tk.Label(
             main,
             text=body,
-            bg="#ffffff",
+            bg=THEME["panel"],
             fg=body_color,
-            font=("Microsoft YaHei UI", 13),
-            wraplength=365,
+            font=("Microsoft YaHei UI", 14),
+            wraplength=390,
             justify="left",
-            spacing2=4,
         ).pack(anchor="w")
-        buttons = ttk.Frame(main)
+        buttons = tk.Frame(main, bg=THEME["panel"])
         buttons.pack(fill="x", side="bottom", pady=(16, 0))
         if mode == "sitting":
             ttk.Button(
@@ -899,8 +1272,10 @@ def main() -> None:
 
     ensure_dirs()
     if not acquire_single_instance_mutex():
-        if not bring_existing_window_to_front():
-            message_box(f"{APP_NAME} 已经在运行。")
+        for _ in range(20):
+            if bring_existing_window_to_front():
+                return
+            time.sleep(0.1)
         return
 
     UsageTimerWindow().run()
