@@ -1,5 +1,23 @@
 # Changelog
 
+## v1.1.1 - 2026-07-29
+
+界面交互修复版本。
+
+- 修复“正在站立 / 坐下办公”按钮选中态不会正确切换的问题。
+- 修复“本轮实时 / 历史总计”切换按钮选中态不会正确切换的问题。
+- 将“刷新 / 打开记录 / 退出”改为普通操作按钮，不再显示成选中金色。
+- 修复圆角面板边角处多余黄色细线的问题。
+- 主窗口加入整页滚动，小窗口下也能向下查看软件使用记录。
+
+UI interaction bugfix release.
+
+- Fixed selected states for standing/sitting mode buttons.
+- Fixed selected states for live/history tab buttons.
+- Restyled refresh/open records/exit as neutral action buttons.
+- Removed extra yellow line artifacts around rounded panel corners.
+- Added full-page scrolling so compact windows can still show usage records.
+
 ## v1.1.0 - 2026-07-29
 
 界面视觉升级版本。

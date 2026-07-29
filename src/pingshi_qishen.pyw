@@ -409,7 +409,7 @@ def create_session(state: dict) -> dict:
         "started_at": now_text(),
         "updated_at": now_text(),
         "reported": False,
-        "app_version": "4-dark-gold-ui",
+        "app_version": "5-ui-state-scroll-fixes",
         "apps": {},
     }
     state.setdefault("sessions", []).append(session)
@@ -435,69 +435,36 @@ def draw_rounded_rect(
     tags: str = "round",
 ) -> None:
     radius = max(1, min(radius, (x2 - x1) // 2, (y2 - y1) // 2))
-    canvas.create_arc(
-        x1,
-        y1,
-        x1 + radius * 2,
-        y1 + radius * 2,
-        start=90,
-        extent=90,
-        fill=fill,
-        outline=outline,
-        width=width,
-        tags=tags,
-    )
-    canvas.create_arc(
-        x2 - radius * 2,
-        y1,
-        x2,
-        y1 + radius * 2,
-        start=0,
-        extent=90,
-        fill=fill,
-        outline=outline,
-        width=width,
-        tags=tags,
-    )
-    canvas.create_arc(
-        x2 - radius * 2,
-        y2 - radius * 2,
-        x2,
-        y2,
-        start=270,
-        extent=90,
-        fill=fill,
-        outline=outline,
-        width=width,
-        tags=tags,
-    )
-    canvas.create_arc(
-        x1,
-        y2 - radius * 2,
-        x1 + radius * 2,
-        y2,
-        start=180,
-        extent=90,
-        fill=fill,
-        outline=outline,
-        width=width,
-        tags=tags,
-    )
-    canvas.create_rectangle(
+    points = [
         x1 + radius,
         y1,
         x2 - radius,
-        y2,
-        fill=fill,
-        outline=outline,
-        width=width,
-        tags=tags,
-    )
-    canvas.create_rectangle(
-        x1,
+        y1,
+        x2,
+        y1,
+        x2,
         y1 + radius,
         x2,
         y2 - radius,
+        x2,
+        y2,
+        x2 - radius,
+        y2,
+        x1 + radius,
+        y2,
+        x1,
+        y2,
+        x1,
+        y2 - radius,
+        x1,
+        y1 + radius,
+        x1,
+        y1,
+    ]
+    canvas.create_polygon(
+        points,
+        smooth=True,
+        splinesteps=18,
         fill=fill,
         outline=outline,
         width=width,
@@ -582,6 +549,15 @@ class UsageTimerWindow:
         self.posture_elapsed = 0.0
         self.user_active = is_user_active()
         self.reminder_window: tk.Toplevel | None = None
+        self.active_tab = "live"
+        self.standing_button: ttk.Button | None = None
+        self.sitting_button: ttk.Button | None = None
+        self.reminder_toggle_button: ttk.Button | None = None
+        self.live_tab_button: ttk.Button | None = None
+        self.history_tab_button: ttk.Button | None = None
+        self.live_tab_frame: tk.Frame | None = None
+        self.history_tab_frame: tk.Frame | None = None
+        self.page_canvas: tk.Canvas | None = None
         self.stopped = False
 
         self.root = tk.Tk()
@@ -619,14 +595,14 @@ class UsageTimerWindow:
         self.root.configure(bg=THEME["bg"])
         style.configure("App.TFrame", background=THEME["bg"])
         style.configure("Panel.TFrame", background=THEME["panel"])
-        style.configure("Gold.TButton", font=("Microsoft YaHei UI", 10, "bold"), padding=(14, 8))
-        style.configure("Dark.TButton", font=("Microsoft YaHei UI", 10), padding=(14, 8))
+        style.configure("Selected.TButton", font=("Microsoft YaHei UI", 10, "bold"), padding=(14, 8))
+        style.configure("Neutral.TButton", font=("Microsoft YaHei UI", 10), padding=(14, 8))
         style.configure(
             "Reminder.TButton",
             font=("Microsoft YaHei UI", 11, "bold"),
             padding=(14, 9),
         )
-        for button_style in ("Gold.TButton", "Reminder.TButton"):
+        for button_style in ("Selected.TButton", "Reminder.TButton"):
             style.configure(
                 button_style,
                 foreground="#12100a",
@@ -642,7 +618,7 @@ class UsageTimerWindow:
                 foreground=[("disabled", THEME["muted_dark"])],
             )
         style.configure(
-            "Dark.TButton",
+            "Neutral.TButton",
             foreground=THEME["text"],
             background=THEME["panel_high"],
             bordercolor=THEME["border_soft"],
@@ -651,23 +627,9 @@ class UsageTimerWindow:
             focuscolor=THEME["gold"],
         )
         style.map(
-            "Dark.TButton",
+            "Neutral.TButton",
             background=[("active", "#243049"), ("pressed", "#0f1420")],
             foreground=[("disabled", THEME["muted_dark"])],
-        )
-        style.configure("App.TNotebook", background=THEME["bg"], borderwidth=0)
-        style.configure(
-            "App.TNotebook.Tab",
-            background=THEME["panel"],
-            foreground=THEME["muted"],
-            padding=(18, 10),
-            font=("Microsoft YaHei UI", 10, "bold"),
-            borderwidth=0,
-        )
-        style.map(
-            "App.TNotebook.Tab",
-            background=[("selected", THEME["gold"]), ("active", THEME["panel_high"])],
-            foreground=[("selected", "#11100b"), ("active", THEME["gold_light"])],
         )
         style.configure(
             "Treeview",
@@ -695,8 +657,35 @@ class UsageTimerWindow:
             arrowcolor=THEME["gold"],
         )
 
-        outer = tk.Frame(self.root, bg=THEME["bg"], padx=18, pady=16)
-        outer.pack(fill="both", expand=True)
+        scroll_shell = tk.Frame(self.root, bg=THEME["bg"])
+        scroll_shell.pack(fill="both", expand=True)
+        page_canvas = tk.Canvas(scroll_shell, bg=THEME["bg"], highlightthickness=0, bd=0)
+        page_scroll = ttk.Scrollbar(
+            scroll_shell,
+            orient="vertical",
+            command=page_canvas.yview,
+            style="Vertical.TScrollbar",
+        )
+        page_canvas.configure(yscrollcommand=page_scroll.set)
+        page_canvas.pack(side="left", fill="both", expand=True)
+        page_scroll.pack(side="right", fill="y")
+        self.page_canvas = page_canvas
+
+        outer = tk.Frame(page_canvas, bg=THEME["bg"], padx=18, pady=16)
+        outer_window = page_canvas.create_window(0, 0, window=outer, anchor="nw")
+
+        def sync_scroll_region(event: tk.Event | None = None) -> None:
+            page_canvas.configure(scrollregion=page_canvas.bbox("all"))
+
+        def sync_page_width(event: tk.Event) -> None:
+            page_canvas.itemconfigure(outer_window, width=event.width)
+
+        def on_mousewheel(event: tk.Event) -> None:
+            page_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+        outer.bind("<Configure>", sync_scroll_region)
+        page_canvas.bind("<Configure>", sync_page_width)
+        self.root.bind("<MouseWheel>", on_mousewheel)
 
         header_panel = RoundedPanel(
             outer,
@@ -819,29 +808,69 @@ class UsageTimerWindow:
         ).grid(row=2, column=1, sticky="w", pady=(4, 0))
         actions = tk.Frame(reminder, bg=THEME["panel_alt"])
         actions.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(10, 0))
-        ttk.Button(actions, text="正在站立", command=self.mark_standing, style="Gold.TButton").pack(
-            side="left", padx=(0, 8)
+        self.standing_button = ttk.Button(
+            actions,
+            text="正在站立",
+            command=self.mark_standing,
+            style="Neutral.TButton",
         )
-        ttk.Button(actions, text="坐下办公", command=self.mark_sitting, style="Dark.TButton").pack(
-            side="left", padx=(0, 8)
+        self.standing_button.pack(side="left", padx=(0, 8))
+        self.sitting_button = ttk.Button(
+            actions,
+            text="坐下办公",
+            command=self.mark_sitting,
+            style="Neutral.TButton",
         )
-        ttk.Button(
+        self.sitting_button.pack(side="left", padx=(0, 8))
+        self.reminder_toggle_button = ttk.Button(
             actions,
             textvariable=self.reminder_toggle_text,
             command=self.toggle_reminder,
-            style="Dark.TButton",
-        ).pack(side="left")
+            style="Neutral.TButton",
+        )
+        self.reminder_toggle_button.pack(side="left")
 
-        notebook = ttk.Notebook(outer, style="App.TNotebook")
-        notebook.pack(fill="both", expand=True)
+        tabs = tk.Frame(outer, bg=THEME["bg"])
+        tabs.pack(fill="x", pady=(4, 0))
+        tab_buttons = tk.Frame(tabs, bg=THEME["bg"])
+        tab_buttons.pack(fill="x")
+        self.live_tab_button = ttk.Button(
+            tab_buttons,
+            text="本轮实时",
+            command=lambda: self.show_tab("live"),
+            style="Selected.TButton",
+        )
+        self.live_tab_button.pack(side="left")
+        self.history_tab_button = ttk.Button(
+            tab_buttons,
+            text="历史总计",
+            command=lambda: self.show_tab("history"),
+            style="Neutral.TButton",
+        )
+        self.history_tab_button.pack(side="left", padx=(8, 0))
 
-        live_tab = tk.Frame(notebook, bg=THEME["bg"])
-        history_tab = tk.Frame(notebook, bg=THEME["bg"])
-        notebook.add(live_tab, text="本轮实时")
-        notebook.add(history_tab, text="历史总计")
+        tab_actions = tk.Frame(tabs, bg=THEME["bg"])
+        tab_actions.pack(fill="x", pady=(8, 0))
+        ttk.Button(tab_actions, text="刷新", command=self.refresh_ui, style="Neutral.TButton").pack(
+            side="left", padx=(0, 8)
+        )
+        ttk.Button(
+            tab_actions,
+            text="打开记录",
+            command=self.open_data_folder,
+            style="Neutral.TButton",
+        ).pack(side="left", padx=(0, 8))
+        ttk.Button(tab_actions, text="退出", command=self.confirm_exit, style="Neutral.TButton").pack(
+            side="left"
+        )
+
+        tab_content = tk.Frame(outer, bg=THEME["bg"])
+        tab_content.pack(fill="both", expand=True)
+        self.live_tab_frame = tk.Frame(tab_content, bg=THEME["bg"])
+        self.history_tab_frame = tk.Frame(tab_content, bg=THEME["bg"])
 
         self.live_tree = self.create_tree(
-            live_tab,
+            self.live_tab_frame,
             ("rank", "name", "duration", "share", "title"),
             {
                 "rank": ("#", 48, "center"),
@@ -852,7 +881,7 @@ class UsageTimerWindow:
             },
         )
         self.history_tree = self.create_tree(
-            history_tab,
+            self.history_tab_frame,
             ("rank", "name", "duration", "sessions", "title"),
             {
                 "rank": ("#", 48, "center"),
@@ -862,19 +891,7 @@ class UsageTimerWindow:
                 "title": ("最近窗口", 360, "w"),
             },
         )
-
-        footer = tk.Frame(outer, bg=THEME["bg"])
-        footer.pack(fill="x", pady=(12, 0))
-        ttk.Button(footer, text="刷新", command=self.refresh_ui, style="Gold.TButton").pack(side="left")
-        ttk.Button(footer, text="打开记录", command=self.open_data_folder, style="Dark.TButton").pack(
-            side="left", padx=8
-        )
-        ttk.Button(footer, text="最小化", command=self.root.iconify, style="Dark.TButton").pack(
-            side="right"
-        )
-        ttk.Button(footer, text="退出", command=self.confirm_exit, style="Dark.TButton").pack(
-            side="right", padx=(0, 8)
-        )
+        self.show_tab("live")
 
     def add_metric(self, parent: ttk.Frame, label: str, variable: tk.StringVar, column: int) -> None:
         panel = RoundedPanel(
@@ -911,6 +928,7 @@ class UsageTimerWindow:
             bg=THEME["bg"],
             radius=20,
             padding=(12, 12, 12, 12),
+            height=230,
         )
         panel.pack(fill="both", expand=True, pady=(10, 0))
         frame = tk.Frame(panel.body, bg=THEME["panel"])
@@ -925,6 +943,28 @@ class UsageTimerWindow:
             tree.heading(column, text=title)
             tree.column(column, width=width, anchor=anchor, stretch=column == columns[-1])
         return tree
+
+    def show_tab(self, tab_name: str) -> None:
+        self.active_tab = tab_name
+        if self.live_tab_frame is not None:
+            self.live_tab_frame.pack_forget()
+        if self.history_tab_frame is not None:
+            self.history_tab_frame.pack_forget()
+
+        if tab_name == "history":
+            if self.history_tab_frame is not None:
+                self.history_tab_frame.pack(fill="both", expand=True)
+            if self.live_tab_button is not None:
+                self.live_tab_button.configure(style="Neutral.TButton")
+            if self.history_tab_button is not None:
+                self.history_tab_button.configure(style="Selected.TButton")
+        else:
+            if self.live_tab_frame is not None:
+                self.live_tab_frame.pack(fill="both", expand=True)
+            if self.live_tab_button is not None:
+                self.live_tab_button.configure(style="Selected.TButton")
+            if self.history_tab_button is not None:
+                self.history_tab_button.configure(style="Neutral.TButton")
 
     def tick(self) -> None:
         if self.stopped:
@@ -1030,6 +1070,7 @@ class UsageTimerWindow:
             self.reminder_next_var.set("沉浸工作中，不打扰。")
             self.reminder_active_var.set("")
             self.reminder_toggle_text.set("开启提醒")
+            self.refresh_reminder_buttons()
             return
 
         mode_text = "站立办公" if mode == "standing" else "坐下办公"
@@ -1041,6 +1082,23 @@ class UsageTimerWindow:
         else:
             self.reminder_active_var.set("检测：暂时没有操作，不累计")
         self.reminder_toggle_text.set("关闭提醒")
+        self.refresh_reminder_buttons()
+
+    def refresh_reminder_buttons(self) -> None:
+        enabled = self.reminder.get("enabled", True)
+        mode = self.reminder.get("mode", "sitting")
+        if self.standing_button is not None:
+            self.standing_button.configure(
+                style="Selected.TButton" if enabled and mode == "standing" else "Neutral.TButton"
+            )
+        if self.sitting_button is not None:
+            self.sitting_button.configure(
+                style="Selected.TButton" if enabled and mode == "sitting" else "Neutral.TButton"
+            )
+        if self.reminder_toggle_button is not None:
+            self.reminder_toggle_button.configure(
+                style="Selected.TButton" if not enabled else "Neutral.TButton"
+            )
 
     def save_reminder_settings(self) -> None:
         self.reminder["updated_at"] = now_text()

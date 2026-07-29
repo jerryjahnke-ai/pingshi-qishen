@@ -8,6 +8,7 @@ PingShiQiShen is a lightweight Windows utility that tracks foreground app usage 
 
 - 记录当前前台软件的使用时长。
 - 显示本轮实时统计和历史总计。
+- 主窗口较小时，可以用鼠标滚轮向下查看软件使用记录。
 - 坐下办公时，连续使用屏幕 30 分钟提醒起身活动。
 - 站立办公时，每 30 分钟提醒收腹、站直、不要把重心偏在一边。
 - 深色调和金色点缀界面，提醒弹窗为独立小卡片。
@@ -58,6 +59,7 @@ powershell -ExecutionPolicy Bypass -File scripts\build_release.ps1
 
 - Tracks foreground app usage time on Windows.
 - Shows live session statistics and historical totals.
+- Supports scrolling in compact windows so usage records remain visible.
 - Reminds you to stand up after 30 minutes of active seated screen use.
 - In standing mode, reminds you every 30 minutes to keep posture balanced.
 - Dark UI with gold accents and compact reminder cards.
