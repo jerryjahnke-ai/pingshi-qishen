@@ -1,5 +1,23 @@
 # Changelog
 
+## v1.2.0 - 2026-07-30
+
+新增护眼提醒和风景 Zone。
+
+- 新增独立护眼提醒，默认开启，每 45 分钟提醒“记得多眨眨眼睛，休息休息眼睛。”。
+- 护眼弹窗提供“关闭提醒”和“进入 zone”两个选项。
+- 新增 1 分钟全屏 Zone，滚播全球各地航拍感风景。
+- Zone 支持按 Esc 或点击“退出 Zone”提前退出。
+- 主窗口新增护眼提醒状态、开关和手动进入 Zone 按钮。
+
+Eye-rest reminder and scenic Zone.
+
+- Added an independent eye-rest reminder, enabled by default every 45 minutes.
+- Added a focused eye reminder popup with disable and enter Zone actions.
+- Added a one-minute full-screen scenic Zone with built-in aerial-style landscapes.
+- Zone can be exited early with Esc or the exit button.
+- Added eye reminder status, toggle, and manual Zone entry to the main window.
+
 ## v1.1.1 - 2026-07-29
 
 界面交互修复版本。

@@ -29,7 +29,18 @@ POLL_SECONDS = 1.0
 SAVE_SECONDS = 5.0
 MAX_SESSIONS_TO_KEEP = 60
 REMINDER_INTERVAL_SECONDS = 30 * 60
+EYE_REMINDER_INTERVAL_SECONDS = 45 * 60
+EYE_ZONE_SECONDS = 60
 ACTIVE_IDLE_LIMIT_SECONDS = 60.0
+
+ZONE_SCENES = (
+    ("马尔代夫环礁", "Indian Ocean · 海水、沙洲、珊瑚环"),
+    ("冰岛黑沙海岸", "North Atlantic · 海岸线与浪花"),
+    ("阿尔卑斯雪峰", "Europe · 雪峰与云影"),
+    ("撒哈拉沙丘", "North Africa · 金色沙脊"),
+    ("新西兰峡湾", "South Pacific · 峡湾与群山"),
+    ("云南梯田", "China · 云南梯田水光"),
+)
 
 THEME = {
     "bg": "#07090f",
@@ -204,6 +215,23 @@ def get_reminder_settings(state: dict) -> dict:
         reminder["mode"] = "sitting"
     reminder.setdefault("updated_at", now_text())
     return reminder
+
+
+def default_eye_reminder_settings() -> dict:
+    return {
+        "enabled": True,
+        "updated_at": now_text(),
+    }
+
+
+def get_eye_reminder_settings(state: dict) -> dict:
+    eye_reminder = state.get("eye_reminder")
+    if not isinstance(eye_reminder, dict):
+        eye_reminder = default_eye_reminder_settings()
+        state["eye_reminder"] = eye_reminder
+    eye_reminder["enabled"] = bool(eye_reminder.get("enabled", True))
+    eye_reminder.setdefault("updated_at", now_text())
+    return eye_reminder
 
 
 def get_idle_seconds() -> float:
@@ -409,7 +437,7 @@ def create_session(state: dict) -> dict:
         "started_at": now_text(),
         "updated_at": now_text(),
         "reported": False,
-        "app_version": "5-ui-state-scroll-fixes",
+        "app_version": "6-eye-zone-reminder",
         "apps": {},
     }
     state.setdefault("sessions", []).append(session)
@@ -542,17 +570,25 @@ class UsageTimerWindow:
         self.state = load_state()
         self.previous_summary = consume_previous_session_summary(self.state)
         self.reminder = get_reminder_settings(self.state)
+        self.eye_reminder = get_eye_reminder_settings(self.state)
         self.session = create_session(self.state)
         self.current_app = get_foreground_info()
         self.last_tick = time.monotonic()
         self.last_save = self.last_tick
         self.posture_elapsed = 0.0
+        self.eye_elapsed = 0.0
         self.user_active = is_user_active()
         self.reminder_window: tk.Toplevel | None = None
+        self.eye_reminder_window: tk.Toplevel | None = None
+        self.zone_window: tk.Toplevel | None = None
+        self.zone_canvas: tk.Canvas | None = None
+        self.zone_after_id: str | None = None
+        self.zone_started = 0.0
         self.active_tab = "live"
         self.standing_button: ttk.Button | None = None
         self.sitting_button: ttk.Button | None = None
         self.reminder_toggle_button: ttk.Button | None = None
+        self.eye_toggle_button: ttk.Button | None = None
         self.live_tab_button: ttk.Button | None = None
         self.history_tab_button: ttk.Button | None = None
         self.live_tab_frame: tk.Frame | None = None
@@ -576,6 +612,9 @@ class UsageTimerWindow:
         self.reminder_next_var = tk.StringVar(value="")
         self.reminder_active_var = tk.StringVar(value="")
         self.reminder_toggle_text = tk.StringVar(value="")
+        self.eye_status_var = tk.StringVar(value="")
+        self.eye_next_var = tk.StringVar(value="")
+        self.eye_toggle_text = tk.StringVar(value="")
 
         self.live_tree: ttk.Treeview
         self.history_tree: ttk.Treeview
@@ -772,7 +811,7 @@ class UsageTimerWindow:
             bg=THEME["bg"],
             radius=22,
             padding=(18, 14, 18, 14),
-            height=174,
+            height=260,
         )
         reminder_panel.pack(fill="x", pady=(0, 12))
         reminder = reminder_panel.body
@@ -829,6 +868,52 @@ class UsageTimerWindow:
             style="Neutral.TButton",
         )
         self.reminder_toggle_button.pack(side="left")
+
+        divider = tk.Frame(reminder, bg=THEME["border_soft"], height=1)
+        divider.grid(row=4, column=0, columnspan=3, sticky="ew", pady=(14, 12))
+
+        eye = tk.Frame(reminder, bg=THEME["panel_alt"])
+        eye.grid(row=5, column=0, columnspan=3, sticky="ew")
+        eye.columnconfigure(0, weight=1)
+        eye_text = tk.Frame(eye, bg=THEME["panel_alt"])
+        eye_text.grid(row=0, column=0, sticky="ew")
+        tk.Label(
+            eye_text,
+            text="护眼提醒",
+            bg=THEME["panel_alt"],
+            fg=THEME["gold_light"],
+            font=("Microsoft YaHei UI", 10, "bold"),
+        ).pack(anchor="w")
+        tk.Label(
+            eye_text,
+            textvariable=self.eye_status_var,
+            bg=THEME["panel_alt"],
+            fg=THEME["text"],
+            font=("Microsoft YaHei UI", 12, "bold"),
+        ).pack(anchor="w", pady=(3, 0))
+        tk.Label(
+            eye_text,
+            textvariable=self.eye_next_var,
+            bg=THEME["panel_alt"],
+            fg=THEME["muted"],
+            font=("Microsoft YaHei UI", 10),
+        ).pack(anchor="w", pady=(3, 0))
+
+        eye_actions = tk.Frame(eye, bg=THEME["panel_alt"])
+        eye_actions.grid(row=0, column=1, sticky="e", padx=(14, 0))
+        self.eye_toggle_button = ttk.Button(
+            eye_actions,
+            textvariable=self.eye_toggle_text,
+            command=self.toggle_eye_reminder,
+            style="Neutral.TButton",
+        )
+        self.eye_toggle_button.pack(side="left", padx=(0, 8))
+        ttk.Button(
+            eye_actions,
+            text="进入 Zone",
+            command=self.start_eye_zone,
+            style="Neutral.TButton",
+        ).pack(side="left")
 
         tabs = tk.Frame(outer, bg=THEME["bg"])
         tabs.pack(fill="x", pady=(4, 0))
@@ -976,7 +1061,9 @@ class UsageTimerWindow:
         try:
             next_app = get_foreground_info()
             add_usage(self.session, self.current_app, elapsed)
+            self.user_active = is_user_active()
             self.process_posture_reminder(elapsed)
+            self.process_eye_reminder(elapsed)
             self.session["updated_at"] = now_text()
 
             changed = not same_app(self.current_app, next_app)
@@ -1010,6 +1097,7 @@ class UsageTimerWindow:
         self.fill_live_tree(total)
         self.fill_history_tree()
         self.refresh_reminder_ui()
+        self.refresh_eye_ui()
 
     def fill_live_tree(self, total: float) -> None:
         self.live_tree.delete(*self.live_tree.get_children())
@@ -1050,7 +1138,6 @@ class UsageTimerWindow:
             messagebox.showerror(APP_NAME, f"打不开记录文件夹：\n{BASE_DIR}")
 
     def process_posture_reminder(self, elapsed: float) -> None:
-        self.user_active = is_user_active()
         if not self.reminder.get("enabled", True):
             return
         if not self.user_active:
@@ -1061,6 +1148,20 @@ class UsageTimerWindow:
         self.posture_elapsed += min(max(elapsed, 0.0), 5.0)
         if self.posture_elapsed >= REMINDER_INTERVAL_SECONDS:
             self.show_posture_reminder()
+
+    def process_eye_reminder(self, elapsed: float) -> None:
+        if not self.eye_reminder.get("enabled", True):
+            return
+        if self.eye_reminder_window is not None and self.eye_reminder_window.winfo_exists():
+            return
+        if self.zone_window is not None and self.zone_window.winfo_exists():
+            return
+        if not self.user_active:
+            return
+
+        self.eye_elapsed += min(max(elapsed, 0.0), 5.0)
+        if self.eye_elapsed >= EYE_REMINDER_INTERVAL_SECONDS:
+            self.show_eye_reminder()
 
     def refresh_reminder_ui(self) -> None:
         enabled = self.reminder.get("enabled", True)
@@ -1100,9 +1201,38 @@ class UsageTimerWindow:
                 style="Selected.TButton" if not enabled else "Neutral.TButton"
             )
 
+    def refresh_eye_ui(self) -> None:
+        enabled = self.eye_reminder.get("enabled", True)
+        if not enabled:
+            self.eye_status_var.set("已关闭：本次不再弹护眼提醒")
+            self.eye_next_var.set("需要时可以重新开启，或手动进入 Zone。")
+            self.eye_toggle_text.set("开启护眼")
+        elif self.zone_window is not None and self.zone_window.winfo_exists():
+            remaining = max(0, int(round(EYE_ZONE_SECONDS - (time.monotonic() - self.zone_started))))
+            self.eye_status_var.set("Zone 进行中：放松眼睛")
+            self.eye_next_var.set(f"自动结束：{format_duration(remaining)}")
+            self.eye_toggle_text.set("关闭护眼")
+        elif self.eye_reminder_window is not None and self.eye_reminder_window.winfo_exists():
+            self.eye_status_var.set("护眼提醒正在屏幕中央显示")
+            self.eye_next_var.set("可以关闭提醒，或进入 1 分钟 Zone。")
+            self.eye_toggle_text.set("关闭护眼")
+        else:
+            remaining = max(0.0, EYE_REMINDER_INTERVAL_SECONDS - self.eye_elapsed)
+            self.eye_status_var.set("每 45 分钟提醒眨眼休息")
+            self.eye_next_var.set(f"下一次护眼提醒：{format_duration(remaining)}")
+            self.eye_toggle_text.set("关闭护眼")
+
+        if self.eye_toggle_button is not None:
+            self.eye_toggle_button.configure(style="Neutral.TButton")
+
     def save_reminder_settings(self) -> None:
         self.reminder["updated_at"] = now_text()
         self.state["reminder"] = self.reminder
+        save_state(self.state)
+
+    def save_eye_reminder_settings(self) -> None:
+        self.eye_reminder["updated_at"] = now_text()
+        self.state["eye_reminder"] = self.eye_reminder
         save_state(self.state)
 
     def set_posture_mode(self, mode: str) -> None:
@@ -1124,10 +1254,23 @@ class UsageTimerWindow:
         self.save_reminder_settings()
         self.refresh_reminder_ui()
 
+    def toggle_eye_reminder(self) -> None:
+        self.eye_reminder["enabled"] = not self.eye_reminder.get("enabled", True)
+        self.eye_elapsed = 0.0
+        if not self.eye_reminder["enabled"]:
+            self.close_eye_reminder("off")
+        self.save_eye_reminder_settings()
+        self.refresh_eye_ui()
+
     def reset_posture_interval(self) -> None:
         self.posture_elapsed = 0.0
         self.save_reminder_settings()
         self.refresh_reminder_ui()
+
+    def reset_eye_interval(self) -> None:
+        self.eye_elapsed = 0.0
+        self.save_eye_reminder_settings()
+        self.refresh_eye_ui()
 
     def show_posture_reminder(self) -> None:
         if self.reminder_window is not None and self.reminder_window.winfo_exists():
@@ -1263,6 +1406,435 @@ class UsageTimerWindow:
         else:
             self.reset_posture_interval()
 
+    def show_eye_reminder(self) -> None:
+        if self.eye_reminder_window is not None and self.eye_reminder_window.winfo_exists():
+            return
+        if self.zone_window is not None and self.zone_window.winfo_exists():
+            return
+
+        win = tk.Toplevel(self.root)
+        self.eye_reminder_window = win
+        win.title("护眼提醒")
+        win.geometry("640x360")
+        win.resizable(False, False)
+        win.attributes("-topmost", True)
+        try:
+            win.attributes("-toolwindow", True)
+        except tk.TclError:
+            pass
+        win.protocol("WM_DELETE_WINDOW", lambda: self.close_eye_reminder("later"))
+        win.configure(bg=THEME["bg"])
+
+        shell = tk.Frame(win, bg=THEME["bg"], padx=18, pady=16)
+        shell.pack(fill="both", expand=True)
+        card = RoundedPanel(
+            shell,
+            fill=THEME["panel"],
+            border=THEME["border"],
+            bg=THEME["bg"],
+            radius=24,
+            padding=(20, 18, 20, 18),
+        )
+        card.pack(fill="both", expand=True)
+        content = card.body
+
+        tk.Frame(content, bg=THEME["gold"], width=5).pack(side="left", fill="y", padx=(0, 16))
+        main = tk.Frame(content, bg=THEME["panel"])
+        main.pack(side="left", fill="both", expand=True)
+        tk.Label(
+            main,
+            text="护眼提醒",
+            bg=THEME["panel"],
+            fg=THEME["gold"],
+            font=("Microsoft YaHei UI", 12, "bold"),
+        ).pack(anchor="w")
+        tk.Label(
+            main,
+            text="记得多眨眨眼睛，\n休息休息眼睛。",
+            bg=THEME["panel"],
+            fg=THEME["text"],
+            font=("Microsoft YaHei UI", 22, "bold"),
+            wraplength=500,
+            justify="left",
+        ).pack(anchor="w", pady=(8, 10))
+        tk.Label(
+            main,
+            text="已经连续看屏幕约 45 分钟了。可以进入 1 分钟风景 Zone，看远一点，让眼睛缓一缓。",
+            bg=THEME["panel"],
+            fg="#d9deea",
+            font=("Microsoft YaHei UI", 12),
+            wraplength=500,
+            justify="left",
+        ).pack(anchor="w")
+
+        buttons = tk.Frame(main, bg=THEME["panel"])
+        buttons.pack(fill="x", side="bottom", pady=(16, 0))
+        ttk.Button(
+            buttons,
+            text="关闭提醒",
+            command=lambda: self.close_eye_reminder("off"),
+            style="Reminder.TButton",
+        ).pack(side="left")
+        ttk.Button(
+            buttons,
+            text="进入 zone",
+            command=lambda: self.close_eye_reminder("zone"),
+            style="Reminder.TButton",
+        ).pack(side="left", padx=8)
+
+        win.update_idletasks()
+        screen_w = win.winfo_screenwidth()
+        screen_h = win.winfo_screenheight()
+        x = max(20, (screen_w - win.winfo_width()) // 2)
+        y = max(20, (screen_h - win.winfo_height()) // 2)
+        win.geometry(f"+{x}+{y}")
+        win.lift()
+        win.focus_force()
+        self.refresh_eye_ui()
+
+    def close_eye_reminder(self, action: str) -> None:
+        if self.eye_reminder_window is not None and self.eye_reminder_window.winfo_exists():
+            self.eye_reminder_window.destroy()
+        self.eye_reminder_window = None
+
+        if action == "off":
+            self.eye_reminder["enabled"] = False
+            self.eye_elapsed = 0.0
+            self.save_eye_reminder_settings()
+            self.refresh_eye_ui()
+        elif action == "zone":
+            self.start_eye_zone()
+        else:
+            self.reset_eye_interval()
+
+    def start_eye_zone(self) -> None:
+        if self.eye_reminder_window is not None and self.eye_reminder_window.winfo_exists():
+            self.eye_reminder_window.destroy()
+        self.eye_reminder_window = None
+        self.eye_elapsed = 0.0
+        self.save_eye_reminder_settings()
+        self.refresh_eye_ui()
+        self.show_eye_zone()
+
+    def show_eye_zone(self) -> None:
+        if self.zone_window is not None and self.zone_window.winfo_exists():
+            self.zone_window.lift()
+            return
+
+        win = tk.Toplevel(self.root)
+        self.zone_window = win
+        self.zone_started = time.monotonic()
+        win.title("护眼 Zone")
+        win.configure(bg="#03050a")
+        win.attributes("-fullscreen", True)
+        win.attributes("-topmost", True)
+        win.protocol("WM_DELETE_WINDOW", self.close_eye_zone)
+        win.bind("<Escape>", lambda event: self.close_eye_zone())
+
+        canvas = tk.Canvas(win, bg="#03050a", highlightthickness=0, bd=0)
+        canvas.pack(fill="both", expand=True)
+        self.zone_canvas = canvas
+
+        exit_button = tk.Button(
+            win,
+            text="退出 Zone  Esc",
+            command=self.close_eye_zone,
+            bg="#121826",
+            fg=THEME["text"],
+            activebackground="#253149",
+            activeforeground=THEME["gold_light"],
+            relief="flat",
+            bd=0,
+            padx=16,
+            pady=8,
+            font=("Microsoft YaHei UI", 11, "bold"),
+            cursor="hand2",
+        )
+        exit_button.place(relx=1.0, x=-28, y=26, anchor="ne")
+
+        win.lift()
+        win.focus_force()
+        self.draw_zone_frame()
+
+    def close_eye_zone(self) -> None:
+        if self.zone_canvas is not None and self.zone_after_id is not None:
+            try:
+                self.zone_canvas.after_cancel(self.zone_after_id)
+            except tk.TclError:
+                pass
+        self.zone_after_id = None
+        if self.zone_window is not None and self.zone_window.winfo_exists():
+            self.zone_window.destroy()
+        self.zone_window = None
+        self.zone_canvas = None
+        self.reset_eye_interval()
+
+    def draw_zone_frame(self) -> None:
+        if self.zone_window is None or not self.zone_window.winfo_exists():
+            return
+        if self.zone_canvas is None:
+            return
+
+        elapsed = time.monotonic() - self.zone_started
+        if elapsed >= EYE_ZONE_SECONDS:
+            self.close_eye_zone()
+            return
+
+        canvas = self.zone_canvas
+        width = max(800, canvas.winfo_width())
+        height = max(560, canvas.winfo_height())
+        scene_seconds = EYE_ZONE_SECONDS / len(ZONE_SCENES)
+        scene_index = min(len(ZONE_SCENES) - 1, int(elapsed // scene_seconds))
+        scene_progress = (elapsed % scene_seconds) / scene_seconds
+
+        canvas.delete("all")
+        self.draw_zone_scene(canvas, width, height, scene_index, scene_progress)
+
+        title, subtitle = ZONE_SCENES[scene_index]
+        remaining = max(0, int(round(EYE_ZONE_SECONDS - elapsed)))
+        canvas.create_text(
+            40,
+            38,
+            text=f"护眼 Zone · {title}",
+            anchor="nw",
+            fill=THEME["text"],
+            font=("Microsoft YaHei UI", 24, "bold"),
+        )
+        canvas.create_text(
+            42,
+            78,
+            text=subtitle,
+            anchor="nw",
+            fill=THEME["gold_light"],
+            font=("Segoe UI", 12, "bold"),
+        )
+        canvas.create_text(
+            width / 2,
+            height - 76,
+            text="慢慢眨眼 · 看向远处 · 放松眼睛",
+            anchor="center",
+            fill=THEME["text"],
+            font=("Microsoft YaHei UI", 21, "bold"),
+        )
+        canvas.create_text(
+            width / 2,
+            height - 42,
+            text=f"{remaining} 秒后自动退出，也可以按 Esc 提前退出",
+            anchor="center",
+            fill=THEME["gold_light"],
+            font=("Microsoft YaHei UI", 12),
+        )
+        self.zone_after_id = canvas.after(120, self.draw_zone_frame)
+
+    def draw_zone_scene(
+        self,
+        canvas: tk.Canvas,
+        width: int,
+        height: int,
+        scene_index: int,
+        progress: float,
+    ) -> None:
+        if scene_index == 0:
+            self.draw_atoll_scene(canvas, width, height, progress)
+        elif scene_index == 1:
+            self.draw_ice_coast_scene(canvas, width, height, progress)
+        elif scene_index == 2:
+            self.draw_alps_scene(canvas, width, height, progress)
+        elif scene_index == 3:
+            self.draw_desert_scene(canvas, width, height, progress)
+        elif scene_index == 4:
+            self.draw_fjord_scene(canvas, width, height, progress)
+        else:
+            self.draw_terrace_scene(canvas, width, height, progress)
+
+    @staticmethod
+    def mix_color(start: str, end: str, ratio: float) -> str:
+        ratio = max(0.0, min(1.0, ratio))
+        left = tuple(int(start[index : index + 2], 16) for index in (1, 3, 5))
+        right = tuple(int(end[index : index + 2], 16) for index in (1, 3, 5))
+        mixed = tuple(round(left[index] + (right[index] - left[index]) * ratio) for index in range(3))
+        return "#{:02x}{:02x}{:02x}".format(*mixed)
+
+    def draw_gradient(self, canvas: tk.Canvas, width: int, height: int, top: str, bottom: str) -> None:
+        steps = 54
+        stripe = max(1, height // steps + 1)
+        for index in range(steps):
+            ratio = index / max(1, steps - 1)
+            y1 = index * stripe
+            canvas.create_rectangle(
+                0,
+                y1,
+                width,
+                min(height, y1 + stripe),
+                fill=self.mix_color(top, bottom, ratio),
+                outline="",
+            )
+
+    def draw_atoll_scene(self, canvas: tk.Canvas, width: int, height: int, progress: float) -> None:
+        self.draw_gradient(canvas, width, height, "#042636", "#12a6a1")
+        pan = (progress - 0.5) * width * 0.05
+        for ratio in (0.18, 0.34, 0.52, 0.72, 0.86):
+            x = width * ratio + pan * (1.2 - ratio)
+            canvas.create_arc(
+                x - 150,
+                height * 0.22,
+                x + 150,
+                height * 0.72,
+                start=20,
+                extent=300,
+                outline="#e9d48a",
+                width=18,
+                style="arc",
+            )
+        canvas.create_oval(width * 0.20 + pan, height * 0.25, width * 0.52 + pan, height * 0.70, fill="#82e2dd", outline="")
+        canvas.create_oval(width * 0.28 + pan, height * 0.36, width * 0.43 + pan, height * 0.58, fill="#0f9a8f", outline="")
+        canvas.create_oval(width * 0.63 - pan, height * 0.32, width * 0.82 - pan, height * 0.58, fill="#e9d48a", outline="")
+        canvas.create_oval(width * 0.68 - pan, height * 0.38, width * 0.77 - pan, height * 0.51, fill="#2f8b55", outline="")
+        for offset in range(0, width, 180):
+            y = height * (0.18 + 0.08 * ((offset // 180) % 3))
+            canvas.create_line(
+                offset + pan * 1.8,
+                y,
+                offset + 90 + pan * 1.8,
+                y + 26,
+                offset + 180 + pan * 1.8,
+                y,
+                fill="#d9fffb",
+                width=2,
+                smooth=True,
+            )
+
+    def draw_ice_coast_scene(self, canvas: tk.Canvas, width: int, height: int, progress: float) -> None:
+        self.draw_gradient(canvas, width, height, "#071722", "#0a4156")
+        pan = (progress - 0.5) * width * 0.06
+        canvas.create_polygon(0, 0, width * 0.58 + pan, 0, width * 0.43 + pan, height, 0, height, fill="#062a3c", outline="")
+        canvas.create_polygon(width * 0.52 + pan, 0, width, 0, width, height, width * 0.42 + pan, height, fill="#151515", outline="")
+        for index in range(8):
+            x = width * (0.48 + index * 0.02) + pan
+            canvas.create_line(
+                x,
+                0,
+                x - width * 0.08,
+                height * 0.34,
+                x - width * 0.02,
+                height * 0.68,
+                x - width * 0.12,
+                height,
+                fill=self.mix_color("#f5fbff", "#75b8c7", index / 8),
+                width=max(2, 7 - index),
+                smooth=True,
+            )
+        for index in range(18):
+            x = width * 0.60 + (index * 97 + pan * 2) % (width * 0.4)
+            y = (index * 73) % height
+            canvas.create_oval(x, y, x + 4, y + 4, fill="#cfd8df", outline="")
+
+    def draw_alps_scene(self, canvas: tk.Canvas, width: int, height: int, progress: float) -> None:
+        self.draw_gradient(canvas, width, height, "#13324a", "#87c7d8")
+        pan = (progress - 0.5) * width * 0.04
+        cloud_y = height * 0.20
+        for index in range(7):
+            x = (index * width / 6 + pan * 2) % (width + 220) - 110
+            canvas.create_oval(x - 70, cloud_y + (index % 3) * 22, x + 90, cloud_y + 70, fill="#e7f3f4", outline="")
+        layers = [
+            ("#22354a", 0.72, 0.16),
+            ("#31506a", 0.82, 0.10),
+            ("#1a2938", 0.94, 0.06),
+        ]
+        for color, base, speed in layers:
+            points = [0, height * base]
+            for index in range(7):
+                x = index * width / 6 + pan * width * speed
+                peak = height * (0.20 + 0.12 * (index % 3))
+                points.extend([x, peak])
+            points.extend([width, height * base, width, height, 0, height])
+            canvas.create_polygon(points, fill=color, outline="")
+        for index in range(6):
+            x = index * width / 5 + pan * 0.8
+            peak_y = height * (0.22 + 0.09 * (index % 2))
+            canvas.create_polygon(
+                x - 42,
+                peak_y + 70,
+                x,
+                peak_y,
+                x + 48,
+                peak_y + 74,
+                fill="#f4f8f2",
+                outline="",
+            )
+
+    def draw_desert_scene(self, canvas: tk.Canvas, width: int, height: int, progress: float) -> None:
+        self.draw_gradient(canvas, width, height, "#40240e", "#d69b45")
+        pan = (progress - 0.5) * width * 0.09
+        for index in range(12):
+            y = height * (0.16 + index * 0.075)
+            color = self.mix_color("#f4c979", "#8d5720", index / 12)
+            canvas.create_line(
+                -80 + pan,
+                y,
+                width * 0.25,
+                y - 36 + (index % 2) * 22,
+                width * 0.55,
+                y + 24,
+                width + 80 + pan,
+                y - 18,
+                fill=color,
+                width=max(2, 10 - index // 2),
+                smooth=True,
+            )
+        canvas.create_polygon(0, height * 0.72, width * 0.42 + pan, height * 0.44, width, height * 0.76, width, height, 0, height, fill="#b77731", outline="")
+        canvas.create_line(0, height * 0.72, width * 0.42 + pan, height * 0.44, width, height * 0.76, fill="#f2c871", width=3, smooth=True)
+
+    def draw_fjord_scene(self, canvas: tk.Canvas, width: int, height: int, progress: float) -> None:
+        self.draw_gradient(canvas, width, height, "#102c3b", "#7bb5b5")
+        pan = (progress - 0.5) * width * 0.04
+        canvas.create_polygon(0, height * 0.18, width * 0.38 + pan, height * 0.62, 0, height, fill="#173827", outline="")
+        canvas.create_polygon(width, height * 0.12, width * 0.62 - pan, height * 0.58, width, height, fill="#23432f", outline="")
+        canvas.create_polygon(width * 0.36 + pan, height * 0.56, width * 0.64 - pan, height * 0.55, width * 0.84, height, width * 0.16, height, fill="#174d63", outline="")
+        for index in range(9):
+            x = width * (0.36 + index * 0.035) + pan * (index % 2 - 0.5)
+            canvas.create_line(x, height * 0.62, width / 2, height, fill="#9bd7d9", width=2, smooth=True)
+        canvas.create_polygon(width * 0.42, height * 0.74, width * 0.50, height * 0.68, width * 0.58, height * 0.75, width * 0.52, height * 0.80, fill="#40694b", outline="")
+
+    def draw_terrace_scene(self, canvas: tk.Canvas, width: int, height: int, progress: float) -> None:
+        self.draw_gradient(canvas, width, height, "#18331f", "#6e8c48")
+        pan = (progress - 0.5) * width * 0.05
+        palette = ("#2b5d38", "#6f8f41", "#b7aa5a", "#4e7f75", "#8dc2aa")
+        for index in range(18):
+            y = height * (0.10 + index * 0.052)
+            color = palette[index % len(palette)]
+            canvas.create_line(
+                -120 + pan * (index % 3),
+                y,
+                width * 0.20,
+                y - 28 + (index % 4) * 12,
+                width * 0.48,
+                y + 18,
+                width * 0.74,
+                y - 24,
+                width + 120,
+                y + 8,
+                fill=color,
+                width=18,
+                smooth=True,
+            )
+            canvas.create_line(
+                -120 + pan * (index % 3),
+                y - 9,
+                width * 0.20,
+                y - 37 + (index % 4) * 12,
+                width * 0.48,
+                y + 9,
+                width * 0.74,
+                y - 33,
+                width + 120,
+                y - 1,
+                fill="#d5d88f",
+                width=2,
+                smooth=True,
+            )
+        canvas.create_oval(width * 0.62 - pan, height * 0.20, width * 0.78 - pan, height * 0.33, fill="#d8e8c0", outline="")
+
     def show_previous_summary(self) -> None:
         threading.Thread(
             target=message_box,
@@ -1287,6 +1859,10 @@ class UsageTimerWindow:
 
     def stop_and_exit(self) -> None:
         self.stopped = True
+        if self.eye_reminder_window is not None and self.eye_reminder_window.winfo_exists():
+            self.eye_reminder_window.destroy()
+        if self.zone_window is not None and self.zone_window.winfo_exists():
+            self.close_eye_zone()
         self.session["updated_at"] = now_text()
         save_state(self.state)
         self.root.destroy()
@@ -1306,6 +1882,7 @@ def smoke_test() -> None:
     info = get_foreground_info()
     state = load_state()
     reminder = get_reminder_settings(state)
+    eye_reminder = get_eye_reminder_settings(state)
     print(
         json.dumps(
             {
@@ -1314,6 +1891,7 @@ def smoke_test() -> None:
                 "idle_seconds": round(get_idle_seconds(), 2),
                 "user_active": is_user_active(),
                 "reminder": reminder,
+                "eye_reminder": eye_reminder,
                 "sessions": len(state.get("sessions", [])),
                 "state_file": str(STATE_FILE),
             },
