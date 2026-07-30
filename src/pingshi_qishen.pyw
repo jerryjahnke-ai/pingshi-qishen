@@ -22,6 +22,13 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import messagebox, ttk
 
+try:
+    from PIL import Image, ImageOps, ImageTk
+except Exception:
+    Image = None
+    ImageOps = None
+    ImageTk = None
+
 
 APP_NAME = "屏时起身：软件时长统计与起立活动提醒"
 APP_MUTEX = "Local\\PingShiQiShenMutex"
@@ -41,6 +48,7 @@ ZONE_SCENES = (
     ("新西兰峡湾", "South Pacific · 峡湾与群山"),
     ("云南梯田", "China · 云南梯田水光"),
 )
+PIL_AVAILABLE = Image is not None and ImageOps is not None and ImageTk is not None
 
 THEME = {
     "bg": "#07090f",
@@ -126,6 +134,11 @@ def now_text() -> str:
 def ensure_dirs() -> None:
     STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
     LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+
+
+def resource_path(*parts: str) -> Path:
+    base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[1]))
+    return base.joinpath(*parts)
 
 
 def log_error(message: str) -> None:
@@ -232,6 +245,35 @@ def get_eye_reminder_settings(state: dict) -> dict:
     eye_reminder["enabled"] = bool(eye_reminder.get("enabled", True))
     eye_reminder.setdefault("updated_at", now_text())
     return eye_reminder
+
+
+def load_zone_photo_assets() -> list[dict]:
+    if not PIL_AVAILABLE:
+        return []
+
+    manifest_path = resource_path("assets", "zone", "manifest.json")
+    try:
+        if not manifest_path.exists():
+            return []
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        assets = []
+        for item in manifest:
+            image_path = manifest_path.parent / str(item.get("file", ""))
+            if not image_path.exists():
+                continue
+            assets.append(
+                {
+                    "path": image_path,
+                    "file": image_path.name,
+                    "title": item.get("title") or image_path.stem,
+                    "subtitle": item.get("subtitle") or "",
+                    "license": item.get("license") or "",
+                }
+            )
+        return assets
+    except Exception:
+        log_error("Failed to load Zone photo assets:\n" + traceback.format_exc())
+        return []
 
 
 def get_idle_seconds() -> float:
@@ -437,7 +479,7 @@ def create_session(state: dict) -> dict:
         "started_at": now_text(),
         "updated_at": now_text(),
         "reported": False,
-        "app_version": "6-eye-zone-reminder",
+        "app_version": "7-real-photo-zone",
         "apps": {},
     }
     state.setdefault("sessions", []).append(session)
@@ -573,6 +615,7 @@ class UsageTimerWindow:
         self.eye_reminder = get_eye_reminder_settings(self.state)
         self.session = create_session(self.state)
         self.current_app = get_foreground_info()
+        self.zone_photo_assets = load_zone_photo_assets()
         self.last_tick = time.monotonic()
         self.last_save = self.last_tick
         self.posture_elapsed = 0.0
@@ -584,6 +627,8 @@ class UsageTimerWindow:
         self.zone_canvas: tk.Canvas | None = None
         self.zone_after_id: str | None = None
         self.zone_started = 0.0
+        self.zone_photo_cache: dict[tuple[str, int, int], object] = {}
+        self.zone_photo_ref: object | None = None
         self.active_tab = "live"
         self.standing_button: ttk.Button | None = None
         self.sitting_button: ttk.Button | None = None
@@ -1567,6 +1612,7 @@ class UsageTimerWindow:
             self.zone_window.destroy()
         self.zone_window = None
         self.zone_canvas = None
+        self.zone_photo_ref = None
         self.reset_eye_interval()
 
     def draw_zone_frame(self) -> None:
@@ -1583,15 +1629,25 @@ class UsageTimerWindow:
         canvas = self.zone_canvas
         width = max(800, canvas.winfo_width())
         height = max(560, canvas.winfo_height())
-        scene_seconds = EYE_ZONE_SECONDS / len(ZONE_SCENES)
-        scene_index = min(len(ZONE_SCENES) - 1, int(elapsed // scene_seconds))
+        scenes_count = len(self.zone_photo_assets) if self.zone_photo_assets else len(ZONE_SCENES)
+        scene_seconds = EYE_ZONE_SECONDS / scenes_count
+        scene_index = min(scenes_count - 1, int(elapsed // scene_seconds))
         scene_progress = (elapsed % scene_seconds) / scene_seconds
 
         canvas.delete("all")
-        self.draw_zone_scene(canvas, width, height, scene_index, scene_progress)
+        photo_asset = self.zone_photo_assets[scene_index] if self.zone_photo_assets else None
+        if photo_asset is not None:
+            self.draw_zone_photo(canvas, width, height, photo_asset)
+            title = str(photo_asset.get("title") or "风景")
+            subtitle_parts = [str(photo_asset.get("subtitle") or "").strip(), str(photo_asset.get("license") or "").strip()]
+            subtitle = " · ".join(part for part in subtitle_parts if part)
+        else:
+            self.draw_zone_scene(canvas, width, height, scene_index, scene_progress)
+            title, subtitle = ZONE_SCENES[scene_index]
 
-        title, subtitle = ZONE_SCENES[scene_index]
         remaining = max(0, int(round(EYE_ZONE_SECONDS - elapsed)))
+        canvas.create_rectangle(0, 0, width, 138, fill="#000000", outline="", stipple="gray50")
+        canvas.create_rectangle(0, height - 128, width, height, fill="#000000", outline="", stipple="gray50")
         canvas.create_text(
             40,
             38,
@@ -1624,7 +1680,31 @@ class UsageTimerWindow:
             fill=THEME["gold_light"],
             font=("Microsoft YaHei UI", 12),
         )
-        self.zone_after_id = canvas.after(120, self.draw_zone_frame)
+        self.zone_after_id = canvas.after(180, self.draw_zone_frame)
+
+    def draw_zone_photo(self, canvas: tk.Canvas, width: int, height: int, asset: dict) -> None:
+        if not PIL_AVAILABLE:
+            return
+
+        key = (str(asset.get("file")), width, height)
+        photo = self.zone_photo_cache.get(key)
+        if photo is None:
+            try:
+                with Image.open(asset["path"]) as image:
+                    image = image.convert("RGB")
+                    image = ImageOps.fit(image, (width, height), method=Image.Resampling.LANCZOS)
+                    shade = Image.new("RGB", (width, height), "#000000")
+                    image = Image.blend(image, shade, 0.14)
+                    photo = ImageTk.PhotoImage(image)
+                self.zone_photo_cache[key] = photo
+            except Exception:
+                log_error("Failed to render Zone photo:\n" + traceback.format_exc())
+                self.zone_photo_assets = []
+                self.draw_zone_scene(canvas, width, height, 0, 0.0)
+                return
+
+        self.zone_photo_ref = photo
+        canvas.create_image(0, 0, image=photo, anchor="nw")
 
     def draw_zone_scene(
         self,
@@ -1892,6 +1972,7 @@ def smoke_test() -> None:
                 "user_active": is_user_active(),
                 "reminder": reminder,
                 "eye_reminder": eye_reminder,
+                "zone_photo_assets": len(load_zone_photo_assets()),
                 "sessions": len(state.get("sessions", [])),
                 "state_file": str(STATE_FILE),
             },

@@ -13,7 +13,7 @@ PingShiQiShen is a lightweight Windows utility that tracks foreground app usage 
 - 站立办公时，每 30 分钟提醒收腹、站直、不要把重心偏在一边。
 - 护眼提醒默认开启，每 45 分钟提醒多眨眼、休息眼睛。
 - 护眼弹窗可关闭提醒，也可进入 1 分钟全屏风景 Zone。
-- Zone 内置全球各地航拍感风景滚播，支持按 Esc 或点击按钮提前退出。
+- Zone 内置 CC0 / Public domain 真实风景照片滚播，支持按 Esc 或点击按钮提前退出。
 - 深色调和金色点缀界面，提醒弹窗为独立小卡片。
 - 支持关闭提醒，用于沉浸式工作。
 - 支持开机自启动。
@@ -67,7 +67,7 @@ powershell -ExecutionPolicy Bypass -File scripts\build_release.ps1
 - In standing mode, reminds you every 30 minutes to keep posture balanced.
 - Adds an eye-rest reminder every 45 minutes by default.
 - Lets you disable eye reminders or enter a one-minute full-screen scenic Zone.
-- Zone includes built-in aerial-style landscape scenes and can be exited with Esc or the exit button.
+- Zone includes bundled CC0 / Public domain real landscape photos and can be exited with Esc or the exit button.
 - Dark UI with gold accents and compact reminder cards.
 - Lets you disable reminders for focused work.
 - Supports Windows startup autostart.

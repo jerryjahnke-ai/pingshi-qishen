@@ -1,5 +1,21 @@
 # Changelog
 
+## v1.2.1 - 2026-07-30
+
+Zone 视觉素材升级版本。
+
+- 将原来的程序绘制风景替换为真实实拍照片滚播。
+- 内置 8 张 Wikimedia Commons 上标明 CC0 / Public domain 的风景图。
+- Zone 继续支持 1 分钟自动退出、Esc 退出和按钮退出。
+- 普通用户 zip 内新增 `Zone图片来源.md`，列出每张图的来源和许可。
+
+Real-photo Zone asset refresh.
+
+- Replaced generated scenery with real photo slideshow assets.
+- Bundled 8 Wikimedia Commons CC0 / Public domain landscape photos.
+- Kept one-minute auto exit, Esc exit, and button exit.
+- Added photo credits to the Windows user package.
+
 ## v1.2.0 - 2026-07-30
 
 新增护眼提醒和风景 Zone。

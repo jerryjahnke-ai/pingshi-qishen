@@ -5,10 +5,12 @@ $venvDir = Join-Path $repoRoot ".venv"
 $python = Join-Path $venvDir "Scripts\python.exe"
 $pyinstaller = Join-Path $venvDir "Scripts\pyinstaller.exe"
 $source = Join-Path $repoRoot "src\pingshi_qishen.pyw"
+$zoneAssets = Join-Path $repoRoot "assets\zone"
 $buildRoot = Join-Path $repoRoot "build"
 $distRoot = Join-Path $repoRoot "dist"
 $appName = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String("5bGP5pe26LW36Lqr"))
 $zipName = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String("5bGP5pe26LW36LqrLeaZrumAmueUqOaIt+eJiC56aXA="))
+$creditsName = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String("Wm9uZeWbvueJh+adpea6kC5tZA=="))
 $packageDir = Join-Path $distRoot $appName
 $zipPath = Join-Path $distRoot $zipName
 
@@ -34,6 +36,7 @@ New-Item -ItemType Directory -Force -Path $distRoot | Out-Null
   --onefile `
   --windowed `
   --name $appName `
+  --add-data "$zoneAssets;assets\zone" `
   --distpath (Join-Path $buildRoot "pyinstaller-dist") `
   --workpath (Join-Path $buildRoot "pyinstaller-build") `
   --specpath $buildRoot `
@@ -42,6 +45,7 @@ New-Item -ItemType Directory -Force -Path $distRoot | Out-Null
 New-Item -ItemType Directory -Force -Path $packageDir | Out-Null
 Copy-Item -LiteralPath (Join-Path $buildRoot "pyinstaller-dist\$appName.exe") -Destination (Join-Path $packageDir "$appName.exe") -Force
 Copy-Item -Path (Join-Path $repoRoot "packaging\*") -Destination $packageDir -Force
+Copy-Item -LiteralPath (Join-Path $zoneAssets "CREDITS.md") -Destination (Join-Path $packageDir $creditsName) -Force
 
 Compress-Archive -LiteralPath $packageDir -DestinationPath $zipPath -Force
 Write-Host "Built release package: $zipPath"
